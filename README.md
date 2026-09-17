@@ -25,11 +25,12 @@ the point is that the difference is invisible without this.
 ## Install
 
 ```sh
-opencode plugin opencode-subagent-usage
+opencode plugin opencode-subagent-usage --global
 ```
 
-That installs the package and registers it in `tui.json` automatically. Restart
-the TUI afterwards.
+That installs the package and registers it in `~/.config/opencode/tui.json`.
+Without `--global` it installs into the current directory's `.opencode/tui.json`
+instead. Restart the TUI afterwards.
 
 Prefer to do it by hand? Add the package to the `plugin` array in
 `~/.config/opencode/tui.json`:
@@ -74,6 +75,22 @@ No network calls are made beyond opencode's own local API client. Nothing is
 written to disk, nothing is sent anywhere, and no session data leaves your
 machine.
 
+### Why the source is plain JS
+
+`src/subagent-usage.js` is hand-written, not compiled from JSX, and that is
+deliberate. opencode loads published plugins from inside `node_modules`, and its
+bundled Bun runtime does not apply the JSX transform to files there, so a
+shipped `.tsx` is never executed - it fails silently and the plugin simply never
+appears. Building the JSX ahead of time does not solve it either: the common
+compilers either emit the *dev* JSX runtime, or flatten JSX props eagerly and
+drop Solid's reactivity. So the file is written directly in the shape a
+Solid-aware compiler would produce: `jsx`/`jsxs` from the production runtime,
+with getters on every prop that reads reactive state.
+
+The practical consequence is that this package has no build step and no
+runtime dependencies other than the `solid-js` and `@opentui/solid` the host
+already provides.
+
 ## Requirements
 
 - opencode `>= 1.18.31` (the version verified to expose the TUI plugin slot API)
@@ -81,7 +98,7 @@ machine.
 
 ## Tuning
 
-Two constants at the top of `src/subagent-usage.tsx`:
+Two constants at the top of `src/subagent-usage.js`:
 
 - `POLL_MS` - refresh interval, default `2000`
 - `order` in the `slots.register` call - default `90`, which places the block
