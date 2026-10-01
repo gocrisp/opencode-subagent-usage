@@ -24,27 +24,29 @@ the point is that the difference is invisible without this.
 
 ## Install
 
-```sh
-opencode plugin opencode-subagent-usage --global
-```
-
-That installs the package and registers it in `~/.config/opencode/tui.json`.
-Without `--global` it installs into the current directory's `.opencode/tui.json`
-instead. Restart the TUI afterwards.
-
-Prefer to do it by hand? Add the package to the `plugin` array in
-`~/.config/opencode/tui.json`:
+For **OpenCode V2**, add the package to the `plugins` array in
+`~/.config/opencode/cli.json` (or `$XDG_CONFIG_HOME/opencode/cli.json`):
 
 ```json
 {
-  "$schema": "https://opencode.ai/tui.json",
-  "plugin": ["opencode-subagent-usage"]
+  "$schema": "https://opencode.ai/v2/cli.json",
+  "plugins": ["opencode-subagent-usage"]
 }
 ```
 
-> TUI plugins belong in `tui.json`. Putting this in `opencode.json` makes the
-> server-side loader look for a `server()` export that does not exist, and it
-> will warn and skip the package.
+Preserve any existing settings and plugin entries. Restart the TUI afterwards.
+CLI configuration is global in V2; there is no project-local `cli.json`.
+
+This is a CLI-only package: configure it in `cli.json`, not `opencode.json`.
+It runs in your terminal even when connected to a remote OpenCode server.
+
+### Upgrading from V1
+
+This implementation targets V2 only. OpenCode can migrate supported global
+`tui.json` settings when `cli.json` is absent, but V1 plugin code itself is not
+compatible with V2. Verify that this package appears in `cli.json` under
+`plugins`, replacing any explicit pin to the V1 release. Keep using package
+version `0.1.1` if you still run OpenCode V1.
 
 ## What it shows
 
@@ -67,13 +69,16 @@ token number can look much larger than the raw conversation size.
 ## How it works
 
 For the session currently displayed in the sidebar, it calls
-`client.session.children({ sessionID })`, sums each child's `cost` and `tokens`,
-then recurses into each child. Data refreshes every 2 seconds and on
-`session.status` / `session.updated` events. A `seen` set guards against cycles.
+`client.session.list({ parentID: sessionID })`, follows every pagination cursor,
+sums each child's `cost` and `tokens`, then recurses into each child. Data
+refreshes every 2 seconds and on V2 `session.created`, `session.deleted`,
+`session.usage.updated`, and `session.status.updated` events. A `seen` set guards
+against cycles and double counting.
 
-No network calls are made beyond opencode's own local API client. Nothing is
-written to disk, nothing is sent anywhere, and no session data leaves your
-machine.
+No network calls are made beyond OpenCode's own API client, using the connected
+server (local or remote). Nothing is written to disk by this plugin, and no
+session data is sent to a third-party service. Requests are cancelled when the
+sidebar changes sessions or unmounts; failed refreshes keep the last good totals.
 
 ### Why the source is plain JS
 
@@ -88,21 +93,45 @@ Solid-aware compiler would produce: `jsx`/`jsxs` from the production runtime,
 with getters on every prop that reads reactive state.
 
 The practical consequence is that this package has no build step and no
-runtime dependencies other than the `solid-js` and `@opentui/solid` the host
-already provides.
+UI dependencies other than the `solid-js` and `@opentui/solid` the host
+already provides. `@opencode/plugin` supplies the V2 plugin definition API.
 
 ## Requirements
 
-- opencode `>= 1.18.31` (the version verified to expose the TUI plugin slot API)
+- OpenCode `>= 2.0.16 < 3` with its terminal client
+- Host-provided OpenTUI `>= 0.5.8` and Solid `^1.9.0`
 - A model provider that reports cost, for the `spent` figure to be meaningful
 
 ## Tuning
 
-Two constants at the top of `src/subagent-usage.js`:
+In the source:
 
-- `POLL_MS` - refresh interval, default `2000`
-- `order` in the `slots.register` call - default `90`, which places the block
-  directly above the built-in Context block (`100`)
+- `POLL_MS` in `src/usage.js` - refresh interval, default `2000`
+- `prepend: "sidebar.content"` in `src/subagent-usage.js` - places the block
+  before the built-in sidebar content. V2 uses named slot placement rather than
+  V1's numeric slot order.
+
+## Development
+
+For a local checkout, add its absolute directory path to `plugins` in
+`cli.json`. The root `tui.js` is required for OpenCode's local-directory loader;
+the package's `./tui` export alone only covers loading by package name.
+
+```sh
+npm install
+npm run check
+npm test
+npm run test:tui # requires Bun >= 1.3; renders with OpenTUI's test renderer
+```
+
+Tests cover paginated recursive totals, cycle protection, V2 event refreshes,
+polling, API failures, session-switch races, and cleanup. The TUI smoke test
+also checks the package entrypoint, real rendering, reactive session switching,
+and component cleanup.
+
+The Subagents figures are descendants of the session being viewed. To see a
+subagent's spend here, view its parent session; a child with no subagents of its
+own does not show the block.
 
 ## Notes
 
